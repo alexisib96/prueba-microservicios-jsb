@@ -1,0 +1,90 @@
+version: '3.9'
+
+services:
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    container_name: catalogo-sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "YourStrong!Passw0rd"
+      MSSQL_PID: "Developer"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    networks:
+      - catalogo-net
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd' -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+inventorio-service:
+    build:
+      context: ./inventorio-service
+      dockerfile: Dockerfile
+    container_name: catalogo-inventorio
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SQLSERVER_HOST: sqlserver
+      SQLSERVER_PORT: 1433
+      SQLSERVER_USER: app_user
+      SQLSERVER_PASSWORD: "AppPassword123"
+      INVENTORY_DB_NAME: InventorioDB
+      INVENTORY_SERVICE_PORT: 8082
+    ports:
+      - "8082:8082"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    networks:
+        - catalogo-net
+
+  # =============================================
+  # catalog-service (8081)
+  # =============================================
+catalogo-service:
+    build:
+      context: ./catalogo-service
+      dockerfile: Dockerfile
+    container_name: catalogo-catalog
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SQLSERVER_HOST: sqlserver
+      SQLSERVER_PORT: 1433
+      SQLSERVER_USER: app_user
+      SQLSERVER_PASSWORD: "AppPassword123"
+      CATALOG_DB_NAME: CatalogoDB
+      CATALOG_SERVICE_PORT: 8081
+      INVENTORY_SERVICE_URL: http://inventario-service:8082
+    ports:
+      - "8081:8081"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      inventory-service:
+        condition: service_started
+    networks:
+      - catalogo-net
+
+frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: catalogo-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - catalogo-service
+    networks:
+      - catalogo-net
+
+networks:
+  catalogo-net:
+    driver: bridge
+
+volumes:
+  sqlserver_data:
